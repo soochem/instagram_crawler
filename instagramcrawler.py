@@ -8,6 +8,10 @@ import os
 import re
 import sys
 import time
+
+import csv
+from random import *
+
 try:
     from urlparse import urljoin
     from urllib import urlretrieve
@@ -30,8 +34,10 @@ HOST = 'http://www.instagram.com'
 
 # SELENIUM CSS SELECTOR
 CSS_LOAD_MORE = "a._1cr2e._epyes"
-CSS_RIGHT_ARROW = "a[class='_de018 coreSpriteRightPaginationArrow']"
+CSS_RIGHT_ARROW = "a[class='HBoOv coreSpriteRightPaginationArrow']"
 FIREFOX_FIRST_POST_PATH = "//div[contains(@class, '_8mlbc _vbtk2 _t5r8b')]"
+#FIREFOX_FIRST_POST_PATH = "//div[contains(@class, 'v1Nh3.kIKUG._bz0w')]"
+#FIREFOX_FIRST_POST_PATH = "a[class='v1Nh3 kIKUG _bz0w']"
 TIME_TO_CAPTION_PATH = "../../../div/ul/li/span"
 
 # FOLLOWERS/FOLLOWING RELATED
@@ -157,7 +163,7 @@ class InstagramCrawler(object):
 
     def scroll_to_num_of_posts(self, number):
         # Get total number of posts of page
-        num_info = re.search(r'\], "count": \d+',
+        '''num_info = re.search(r'\], "count": \d+',
                              self._driver.page_source).group()
         num_of_posts = int(re.findall(r'\d+', num_info)[0])
         print("posts: {}, number: {}".format(num_of_posts, number))
@@ -169,6 +175,16 @@ class InstagramCrawler(object):
                 (By.CSS_SELECTOR, CSS_LOAD_MORE))
         )
         loadmore.click()
+        '''
+        num_of_posts=0
+        num_re = re.search(r'([\d,]+)\s*</span>\s*<\/span>',
+                             self._driver.page_source)
+        if num_re:
+            num_of_posts = int(num_re.groups()[0].replace(',', ''))
+        else:
+            print("failed to parse number of posts of page")
+        print("posts: {}, number: {}".format(num_of_posts, number))
+        number = number if number < num_of_posts else num_of_posts
 
         num_to_scroll = int((number - 12) / 12) + 1
         for _ in range(num_to_scroll):
@@ -191,20 +207,26 @@ class InstagramCrawler(object):
         self.data['photo_links'] = photo_links[begin:number + begin]
 
     def click_and_scrape_captions(self, number):
+
         print("Scraping captions...")
         captions = []
-
+        time.sleep(10)
         for post_num in range(number):
             sys.stdout.write("\033[F")
             print("Scraping captions {} / {}".format(post_num+1,number))
+            #self._driver.implicitly_wait(5)
+
             if post_num == 0:  # Click on the first post
                 # Chrome
                 # self._driver.find_element_by_class_name('_ovg3g').click()
-                self._driver.find_element_by_xpath(
-                    FIREFOX_FIRST_POST_PATH).click()
+                time.sleep(40)
+                self._driver.find_element_by_class_name('_bz0w').click()
+                self._driver.find_element_by_class_name('_bz0w').click()
+                print("Find the first page!!")
+                time.sleep(10)
 
                 if number != 1:  #
-                    WebDriverWait(self._driver, 5).until(
+                    WebDriverWait(self._driver, 10).until(
                         EC.presence_of_element_located(
                             (By.CSS_SELECTOR, CSS_RIGHT_ARROW)
                         )
@@ -217,9 +239,12 @@ class InstagramCrawler(object):
 
                 # Wait until the page has loaded
                 try:
+                    time.sleep(10+randrange(5))
                     WebDriverWait(self._driver, 10).until(
                         url_change(url_before))
+
                 except TimeoutException:
+                    self.download_and_save('./data/', 'tags', 'photos')
                     print("Time out in caption scraping at number {}".format(post_num))
                     break
 
@@ -231,11 +256,14 @@ class InstagramCrawler(object):
                 caption = time_element.find_element_by_xpath(
                     TIME_TO_CAPTION_PATH).text
             except NoSuchElementException:  # Forbidden
+                self.download_and_save('./data/', 'tags', 'photos')
                 print("Caption not found in the {} photo".format(post_num))
                 caption = ""
 
-            captions.append(caption)
+            temp_caption = caption.replace('\n', ' ')
+            captions.append(temp_caption)
 
+        print(captions)
         self.data['captions'] = captions
 
     def scrape_followers_or_following(self, crawl_type, query, number):
@@ -248,6 +276,7 @@ class InstagramCrawler(object):
             FOLLOW_PATH = FOLLOWING_PATH
 
         # Locate follow list
+
         follow_ele = WebDriverWait(self._driver, 5).until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, FOLLOW_ELE.format(query)))
@@ -295,7 +324,7 @@ class InstagramCrawler(object):
             os.makedirs(dir_path)
 
         print("Saving to directory: {}".format(dir_path))
-
+        '''
         # Save Photos
         for idx, photo_link in enumerate(self.data['photo_links'], 0):
             sys.stdout.write("\033[F")
@@ -306,15 +335,22 @@ class InstagramCrawler(object):
             filepath = os.path.join(dir_path, filename)
             # Send image request
             urlretrieve(photo_link, filepath)
+            time.sleep(5)
+        '''
 
         # Save Captions
         for idx, caption in enumerate(self.data['captions'], 0):
 
-            filename = str(idx) + '.txt'
-            filepath = os.path.join(dir_path, filename)
+            #filename = str(idx) + '.txt'
 
-            with codecs.open(filepath, 'w', encoding='utf-8') as fout:
+            filename = 'insta.txt'
+            filepath = os.path.join(dir_path, filename)
+            with codecs.open(filepath, 'a', encoding='utf-8') as fout:
                 fout.write(caption + '\n')
+            with open('instagram.csv', 'w', encoding='utf-8') as f:
+                wr = csv.writer(f)
+                wr.writerow([caption])
+
 
         # Save followers/following
         filename = crawl_type + '.txt'
